@@ -53,11 +53,77 @@ addresses both:
 - **Occupancy-aware launch bounds** tuned for gfx906 (`__launch_bounds__(128, 4)`, VGPR = 128 sweet spot).
 - **Adaptive path selection** (short `Sq` → tile kernel, long `Sq` → direct-paged kernel).
 
+## Two serving profiles
+
+This repo ships **two pre-configured launch profiles**. They are not different
+builds — it is the same image and the same kernels, just different vLLM
+runtime settings. The trade-off is fundamental:
+
+### Profile A — short context, high throughput
+
+Script: [`scripts/start_vllm_fa.sh`](scripts/start_vllm_fa.sh)
+
+- **CUDA Graphs ON** (no `--enforce-eager`)
+- Attention routed through our custom kernels (`--attention-backend CUSTOM`)
+- No speculative decoding
+
+**When to use:** chat / Q&A / short prompts, typical context ≤ 32K tokens.
+
+**What you get:** the best decode speed on MI50 for short contexts (27.7 tok/s
+at 1K ctx on MiniMax-M2.7-AWQ-4bit, 8× MI50 TP = 8). CUDA Graphs eliminate
+per-layer launch overhead, which matters a lot when each decode step is cheap.
+
+**What to expect at long context:** throughput degrades roughly linearly with
+KV-cache size — at 32K it is already ~3.5× slower than at 1K (7.7 vs 27.7 tok/s).
+This is fundamental to attention complexity on Vega 20 HBM bandwidth, not a
+bug we can fix without speculative decoding.
+
+### Profile B — long context, stable throughput via n-gram speculative decoding
+
+Script: [`scripts/start_vllm_fa_ngram.sh`](scripts/start_vllm_fa_ngram.sh)
+
+- **`--enforce-eager`** (CUDA Graphs OFF — required for speculative decoding today)
+- Same custom attention backend
+- **N-gram speculative decoding** (`--speculative-config` with `method: ngram`,
+  `num_speculative_tokens: 5`, `prompt_lookup_max: 4`)
+
+**When to use:** RAG, long document summarization, code generation, agents,
+anything with ≥ 32K context or repetitive / retrievable text.
+
+**How it works:** the draft model is a trivial n-gram lookup over the current
+prompt + generated text — no separate draft model, no extra VRAM, zero setup
+cost. For each decode step we propose up to 5 tokens by finding matching
+n-grams in the context; the main model then verifies all 5 in a single forward
+pass. When the context is genuinely repetitive (RAG quotes, code, re-mentions
+of named entities) acceptance rate is close to 100 % and we effectively run
+~4× faster per token on long prompts.
+
+**Why `--enforce-eager`:** with speculative decoding, decode batches have
+variable shape (1 to `num_speculative_tokens + 1` tokens per step), so vLLM's
+CUDA Graphs path cannot capture a single graph and currently falls back to
+eager anyway. Explicitly disabling graphs avoids a startup hang we observed
+during graph capture.
+
+### Which profile should I pick?
+
+| Your workload                                 | Profile | Why                                                                  |
+| :-------------------------------------------- | :------ | :------------------------------------------------------------------- |
+| Chat, ≤ 8K context                            | **A**   | CUDA Graphs win by a mile on short ctx                               |
+| 8–32K short-answer Q&A                        | **A**   | Still faster; n-gram gain not big enough yet                         |
+| RAG with cited passages                       | **B**   | Heavy quoting from context → n-gram acceptance ≈ 100 %               |
+| Code generation / completion                  | **B**   | Repetitive tokens (indent, symbols, imports) → high acceptance       |
+| Long-document summarization / rewrite         | **B**   | Output reuses source phrasing                                        |
+| 100K+ context of any kind                     | **B**   | At this size eager + ngram beats CUDA Graphs without spec decoding   |
+| Creative / open-ended generation, low ctx     | **A**   | Low acceptance on open-ended text — no benefit from n-gram           |
+
+If you are unsure, run both on your actual traffic and measure. Switching is
+just re-launching the container with a different script.
+
 ## Performance
 
 Benchmarked with `tests/bench_vllm.py` on `MiniMax-M2.7-AWQ-4bit`, 8× MI50, TP = 8, BS = 1:
 
-### Short-context profile (`start_vllm_fa.sh`, CUDA Graphs ON)
+### Profile A — `start_vllm_fa.sh` (CUDA Graphs ON, no spec decoding)
 
 |  prompt ctx | TTFT (ms) | ITL (ms) | **TG (tok/s)** |
 | ----------: | --------: | -------: | -------------: |
@@ -65,27 +131,51 @@ Benchmarked with `tests/bench_vllm.py` on `MiniMax-M2.7-AWQ-4bit`, 8× MI50, TP 
 |          8K |       263 |       64 |       **15.6** |
 |         32K |       360 |      130 |        **7.7** |
 
-### Long-context profile (`start_vllm_fa_ngram.sh`, EAGER + ngram speculative decoding, K = 5)
+Observation: TG drops from 27.7 → 7.7 tok/s going 1K → 32K (~3.6×). This is
+why Profile B exists.
 
-|  prompt ctx | TTFT (ms) | ITL (ms) | **TG (tok/s)** | Δ vs `TRITON_ATTN` |
-| ----------: | --------: | -------: | -------------: | -----------------: |
-|         32K |       638 |      135 |        **7.4** |                +6% |
-|         65K |       647 |      225 |        **4.0** |                  — |
-|        100K |      1711 |      256 |        **3.9** |           **+32%** |
-|        130K |      1246 |      332 |        **3.0** |           **+29%** |
+### Profile B — `start_vllm_fa_ngram.sh` (EAGER + n-gram spec decoding, K = 5)
 
-Ngram speculative decoding is effective on repetitive text (RAG, code, document summarization):
-acceptance rate 100 %, mean accepted length 4 / 5.
+|  prompt ctx | TTFT (ms) | ITL (ms) | **TG (tok/s)** | Δ vs stock `TRITON_ATTN` |
+| ----------: | --------: | -------: | -------------: | -----------------------: |
+|         32K |       638 |      135 |        **7.4** |                      +6% |
+|         65K |       647 |      225 |        **4.0** |                        — |
+|        100K |      1711 |      256 |        **3.9** |                 **+32%** |
+|        130K |      1246 |      332 |        **3.0** |                 **+29%** |
+
+Observation: TG is essentially **flat** from 32K to 130K (7.4 → 3.0 tok/s is
+only ~2.5× over a 4× context increase), and at 100K+ it beats stock
+`TRITON_ATTN` by ~30 %. On the benchmark prompts n-gram acceptance rate is
+100 %, mean accepted length 4 / 5.
+
+Profile A at 130K would either OOM or collapse into single-digit tok/s
+without spec decoding — Profile B is the only practical way to serve that
+range on MI50 today.
 
 ---
 
 ## Quick start
 
-### 1. Pre-built Docker image
-
 ```bash
 docker pull nickoptimal/gfx906-fa-vllm:mvp
+git clone https://github.com/nick413-bit/gfx906-fa-vllm && cd gfx906-fa-vllm
+```
 
+### Profile A — short context (chat, Q&A, ≤ 32K)
+
+```bash
+MODEL=/models/MiniMax-M2.7-AWQ-4bit bash scripts/start_vllm_fa.sh
+```
+
+### Profile B — long context (RAG, code, ≥ 32K) — n-gram speculative decoding
+
+```bash
+MODEL=/models/MiniMax-M2.7-AWQ-4bit bash scripts/start_vllm_fa_ngram.sh
+```
+
+### Or run the container by hand
+
+```bash
 docker run -d --name vllm \
     --network host --ipc host --shm-size 16g \
     --device /dev/kfd --device /dev/dri \
@@ -100,22 +190,12 @@ docker run -d --name vllm \
         --disable-custom-all-reduce \
         --max-model-len 65536 \
         --gpu-memory-utilization 0.78
+# Profile B: add on the same line:
+#   --enforce-eager \
+#   --speculative-config '{"method":"ngram","num_speculative_tokens":5,"prompt_lookup_max":4,"prompt_lookup_min":2}'
 ```
 
-Or use the ready-made launch scripts:
-
-```bash
-git clone https://github.com/nick413-bit/gfx906-fa-vllm && cd gfx906-fa-vllm
-MODEL=/models/MiniMax-M2.7-AWQ-4bit bash scripts/start_vllm_fa.sh
-```
-
-### 2. Long contexts (≥ 32K, RAG / code)
-
-```bash
-MODEL=/models/MiniMax-M2.7-AWQ-4bit bash scripts/start_vllm_fa_ngram.sh
-```
-
-### 3. Build from source
+### Build from source
 
 ```bash
 docker build -f docker/Dockerfile -t gfx906-fa-vllm:dev .
