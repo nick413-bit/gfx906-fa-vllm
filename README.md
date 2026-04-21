@@ -157,7 +157,7 @@ range on MI50 today.
 ## Quick start
 
 ```bash
-docker pull nickoptimal/gfx906-fa-vllm:mvp
+docker pull nickoptimal/gfx906-fa-vllm:latest
 git clone https://github.com/nick413-bit/gfx906-fa-vllm && cd gfx906-fa-vllm
 ```
 
@@ -183,7 +183,7 @@ docker run -d --name vllm \
     --cap-add CAP_SYS_PTRACE --security-opt seccomp=unconfined \
     -v /path/to/your/models:/models \
     -e NCCL_P2P_DISABLE=1 -e HIP_ENABLE_PEER_ACCESS=0 \
-    nickoptimal/gfx906-fa-vllm:mvp \
+    nickoptimal/gfx906-fa-vllm:latest \
     vllm serve /models/your-awq-model \
         --tensor-parallel-size 8 \
         --attention-backend CUSTOM \
@@ -197,10 +197,10 @@ docker run -d --name vllm \
 
 ### Worked example — MiniMax-M2.7-AWQ-4bit on 8× MI50 32 GB (Profile A)
 
-Verified launch command (model loads in ~83 s, KV cache ~395 k tokens at
-`max_model_len=10240`, or ~130 k tokens at `max_model_len=32768`). Tool-calling
-and reasoning are enabled, so the model is usable out of the box from Roo Code,
-Cline, OpenAI-compatible clients, etc.
+Verified launch command (model loads in ~83 s; KV cache ≈ 130 k tokens at
+`max_model_len=32768`, giving ~4× headroom over the 16 concurrent slots).
+Tool-calling and reasoning are enabled, so the model is usable out of the box
+from Roo Code, Cline, OpenAI-compatible clients, etc.
 
 ```bash
 docker run -d --name vllm-minimax \
@@ -210,7 +210,7 @@ docker run -d --name vllm-minimax \
     --cap-add CAP_SYS_PTRACE --security-opt seccomp=unconfined \
     -v /path/to/models:/models \
     -e NCCL_P2P_DISABLE=1 -e HIP_ENABLE_PEER_ACCESS=0 \
-    nickoptimal/gfx906-fa-vllm:mvp \
+    nickoptimal/gfx906-fa-vllm:latest \
     vllm serve /models/MiniMax-M2.7-AWQ-4bit \
         --served-model-name minimax-m2.7-awq-4bit \
         --trust-remote-code \

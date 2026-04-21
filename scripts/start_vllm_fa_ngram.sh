@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-: "${IMAGE:=nickoptimal/gfx906-fa-vllm:mvp-0.1}"
+: "${IMAGE:=nickoptimal/gfx906-fa-vllm:latest}"
 : "${CONTAINER_NAME:=gfx906-fa-vllm}"
 : "${MODEL:=/models/cyankiwi/MiniMax-M2.7-AWQ-4bit}"
 : "${SERVED_MODEL_NAME:=minimax}"
