@@ -1,0 +1,116 @@
+# GPUStack custom backend definition for gfx906-fa-vllm
+# ---------------------------------------------------------------------------
+# This file defines the gfx906-fa-vllm backend as a "custom backend" that
+# GPUStack can schedule. It exposes two profiles as separate versions:
+#
+#   profile-a-short-ctx        chat / Q&A / ≤ 32K     CUDA Graphs ON, no spec decoding
+#   profile-b-long-ctx-ngram   RAG / code / ≥ 32K     --enforce-eager + ngram spec decoding
+#
+# Pick the version in the GPUStack UI at deploy time. Per-model params
+# (tensor-parallel-size, max-model-len, gpu-memory-utilization, etc.) can
+# be set in the UI under "Backend Parameters".
+#
+# See also: https://github.com/nick413-bit/gfx906-fa-vllm
+# ---------------------------------------------------------------------------
+
+backend_name: gfx906-fa-vllm-custom
+description: >
+  FlashAttention-style custom attention backend for vLLM on AMD MI50/MI60/
+  Radeon VII (gfx906). Downstream fork of mixa3607/ML-gfx906 with custom
+  HIP kernels. Two profiles: short-context (CUDA Graphs) and long-context
+  (ngram speculative decoding).
+
+default_version: profile-a-short-ctx
+health_check_path: /v1/models
+
+# Parameters that are always appended by GPUStack (host/port are injected
+# by the controller). Everything else comes from `run_command` or the UI.
+default_backend_param:
+  - --host
+
+# Baseline run command — used for `profile-a-short-ctx`. The long-context
+# profile overrides this in its own version block below.
+default_run_command: >
+  vllm serve {{model_path}}
+  --host {{worker_ip}} --port {{port}}
+  --served-model-name {{model_name}}
+  --trust-remote-code
+  --dtype float16
+  --attention-backend CUSTOM
+  --disable-custom-all-reduce
+
+# Env applied to every version unless the version overrides it.
+default_env:
+  # gfx906 backend knobs
+  GFX906_FA_LEGACY: "1"
+  GFX906_FA_FUSED: "1"
+  GFX906_FA_DIRECT_PAGED: "auto"
+  GFX906_FA_GATHER_V: "2"
+  # vLLM runtime
+  VLLM_USE_V1: "1"
+  VLLM_USE_TRITON_AWQ: "1"
+  TORCH_BLAS_PREFER_HIPBLASLT: "0"
+  # Multi-GPU: P2P off by default on typical MI50 topologies (PCIe switches)
+  NCCL_P2P_DISABLE: "1"
+  HIP_ENABLE_PEER_ACCESS: "0"
+  NCCL_IB_DISABLE: "1"
+  RCCL_MSCCL_ENABLE: "0"
+  # Allocator
+  PYTORCH_HIP_ALLOC_CONF: "expandable_segments:True"
+  OMP_NUM_THREADS: "4"
+
+version_configs:
+
+  # -------------------------------------------------------------------------
+  # Profile A — short context, high throughput
+  # -------------------------------------------------------------------------
+  # CUDA Graphs ON, no speculative decoding.
+  # Best for: chat, short Q&A, contexts up to ~32K tokens.
+  # Benchmarked on 8× MI50 + MiniMax-M2.7-AWQ-4bit:
+  #   1K ctx → 26.4 tok/s · 8K → 16.3 tok/s · 32K → 7.58 tok/s
+  # -------------------------------------------------------------------------
+  profile-a-short-ctx:
+    image_name: nickoptimal/gfx906-fa-vllm:mvp
+    entrypoint: "/entrypoint.sh"
+    custom_framework: rocm
+    run_command: >
+      vllm serve {{model_path}}
+      --host {{worker_ip}} --port {{port}}
+      --served-model-name {{model_name}}
+      --trust-remote-code
+      --dtype float16
+      --attention-backend CUSTOM
+      --disable-custom-all-reduce
+    env:
+      # Profile-specific: leave CUDA Graphs enabled (default in vLLM).
+      # No speculative decoding here — add it via the long-ctx profile below.
+
+  # -------------------------------------------------------------------------
+  # Profile B — long context, n-gram speculative decoding
+  # -------------------------------------------------------------------------
+  # --enforce-eager (required for spec decoding today) + ngram draft.
+  # Best for: RAG, code generation, long-document summarization, ≥ 32K ctx.
+  # Benchmarked on 8× MI50 + MiniMax-M2.7-AWQ-4bit:
+  #   32K → 7.4 tok/s · 65K → 4.0 · 100K → 3.9 (+32% vs TRITON_ATTN)
+  #   130K → 3.0 tok/s (+29% vs TRITON_ATTN)
+  # Throughput stays essentially flat 32K → 130K; acceptance rate ≈ 100% on
+  # repetitive / retrievable text (RAG, code).
+  # -------------------------------------------------------------------------
+  profile-b-long-ctx-ngram:
+    image_name: nickoptimal/gfx906-fa-vllm:mvp
+    entrypoint: "/entrypoint.sh"
+    custom_framework: rocm
+    run_command: >
+      vllm serve {{model_path}}
+      --host {{worker_ip}} --port {{port}}
+      --served-model-name {{model_name}}
+      --trust-remote-code
+      --dtype float16
+      --attention-backend CUSTOM
+      --disable-custom-all-reduce
+      --enforce-eager
+      --speculative-config
+      '{"method":"ngram","num_speculative_tokens":5,"prompt_lookup_max":4,"prompt_lookup_min":2}'
+    env:
+      # Same knobs as Profile A — the only real difference is in run_command
+      # (--enforce-eager + --speculative-config).

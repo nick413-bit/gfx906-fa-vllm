@@ -195,6 +195,14 @@ docker run -d --name vllm \
 #   --speculative-config '{"method":"ngram","num_speculative_tokens":5,"prompt_lookup_max":4,"prompt_lookup_min":2}'
 ```
 
+### Deploy on GPUStack
+
+A ready-to-use GPUStack custom-backend manifest is provided in
+[`gpustack/gfx906-fa-vllm.yaml`](gpustack/gfx906-fa-vllm.yaml). It registers
+both profiles as separate versions (`profile-a-short-ctx` /
+`profile-b-long-ctx-ngram`) so you can pick them from the GPUStack UI at
+deploy time. See [`gpustack/README.md`](gpustack/README.md) for setup.
+
 ### Build from source
 
 ```bash

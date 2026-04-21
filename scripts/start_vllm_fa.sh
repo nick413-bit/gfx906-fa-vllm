@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-: "${IMAGE:=nickoptimal/gfx906-fa-vllm:mvp-0.1}"
+: "${IMAGE:=nickoptimal/gfx906-fa-vllm:mvp}"
 : "${CONTAINER_NAME:=gfx906-fa-vllm}"
 : "${MODEL:=/models/cyankiwi/MiniMax-M2.7-AWQ-4bit}"
 : "${SERVED_MODEL_NAME:=minimax}"
@@ -46,7 +46,7 @@ docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 docker run -d --name "$CONTAINER_NAME" \
     --network host --ipc host --shm-size 16g \
     --device /dev/kfd --device /dev/dri \
-    --group-add video --group-add render \
+    --group-add "${KFD_GROUP:-44}" --group-add "${RENDER_GROUP:-993}" \
     ${HOST_GROUPS:+--group-add $HOST_GROUPS} \
     --cap-add CAP_SYS_PTRACE \
     --security-opt seccomp=unconfined --security-opt label=disable \
