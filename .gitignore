@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# C/HIP build artifacts
+*.so
+*.o
+*.d
+*.obj
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Env / secrets
+.env
+*.local
+
+# Logs / traces
+*.log
+rocprof_*.csv
+rocprof_*.db
+*.qdrep
+*.nsys-rep
+
+# Bench / test artifacts
+/tmp/
+*.json.bak
+bench_*.json
+!tests/bench_*.py

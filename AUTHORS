@@ -1,0 +1,11 @@
+gfx906-fa-vllm contributors:
+
+  Nick <nick413@gmail.com>
+
+Acknowledgements:
+
+  @nalanzeyu — base Docker image `vllm-gfx906:v0.12.0-rocm6.3-ct-upgraded-mi50p2p`
+               (используется как базовый слой сборки gfx906-fa-vllm)
+  @mixa3607  — alternative ROCm 7.2.1 vllm-gfx906 image (референс)
+  llama.cpp project — original FlashAttention Q8_0 kernel ideas
+  vLLM project — paged KV cache layout and AttentionImpl API

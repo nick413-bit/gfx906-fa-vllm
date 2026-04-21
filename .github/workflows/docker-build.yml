@@ -1,0 +1,33 @@
+name: Docker build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # На public GH runner нет GPU — собираем только builder stage, без
+      # GPU-тестов. Полный образ публикуется на тэге вручную (см. docker-publish.yml).
+      - name: Build (extension compile)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: false
+          target: builder
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

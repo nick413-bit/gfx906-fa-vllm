@@ -1,0 +1,15 @@
+.git
+.github
+docs
+tests
+scripts
+*.md
+*.json
+*.tgz
+*.DS_Store
+__pycache__
+*.pyc
+*.so
+build/
+dist/
+*.egg-info
