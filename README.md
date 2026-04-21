@@ -7,15 +7,16 @@
 
 **FlashAttention-style custom attention backend for vLLM on AMD MI50 / MI60 / Radeon VII (gfx906).**
 
-This is a **downstream fork** of [`mixa3607/ML-gfx906`](https://github.com/mixa3607/ML-gfx906) — the
-community-maintained ROCm / PyTorch / vLLM stack for deprecated gfx906 GPUs.
-We reuse the upstream Docker image (`mixa3607/vllm-gfx906:0.19.1-rocm-7.2.1-aiinfos`) as the base
-layer and ship **replacement attention kernels** plus a vLLM plugin that registers them as
-`--attention-backend CUSTOM`.
+This is a **downstream fork** of the community-maintained ROCm / PyTorch / vLLM stack for the
+deprecated gfx906 family, which in turn builds on
+[`nlzy/vllm-gfx906`](https://github.com/nlzy/vllm-gfx906) (now archived) and
+[`mixa3607/ML-gfx906`](https://github.com/mixa3607/ML-gfx906). We reuse the upstream Docker image
+(`mixa3607/vllm-gfx906:0.19.1-rocm-7.2.1-aiinfos`) as the base layer and ship **replacement
+attention kernels** plus a vLLM plugin that registers them as `--attention-backend CUSTOM`.
 
 On 8× MI50 with `MiniMax-M2.7-AWQ-4bit` and contexts up to 130K tokens, the custom kernels deliver
-**+20…40 %** throughput over the stock `TRITON_ATTN` backend, and remain usable at 100K+ ctx where
-Triton-generated code degrades sharply on Vega 20.
+**+20…40 %** throughput over the stock `TRITON_ATTN` backend, and — more importantly — stay
+functional at long context where the upstream Triton-generated kernels effectively stall.
 
 ---
 
@@ -37,6 +38,39 @@ not compete with upstream — we plug into it.
 If you only need vLLM on gfx906 **without** the custom FA kernels, use the upstream image
 directly. If you hit throughput issues on long contexts (≥ 32K) or want `CUSTOM` backend — use
 this repo.
+
+---
+
+## What the upstream `TRITON_ATTN` kernels do NOT handle well on gfx906
+
+The attention kernels shipped in [`nlzy/vllm-gfx906`](https://github.com/nlzy/vllm-gfx906) and
+reused downstream by `mixa3607/ML-gfx906` are great at short-context chat, but they were never
+tuned for **long prompts** on Vega 20. In our tests on 8× MI50 with MiniMax-M2.7-AWQ-4bit the
+behaviour was:
+
+| Prompt size | What we observed with stock `TRITON_ATTN` |
+| ----------- | ------------------------------------------ |
+| ~1K tokens  | Prefill (PP) completes in a few seconds, decode (TG) is smooth. |
+| ~10K tokens | Each turn stalls on prefill for **≥ 30 s**, the UI feels frozen between messages. |
+| ~30K tokens | Prefill can take up to **~10 minutes** per turn; agentic clients time out. KV-cache behaviour is clearly sub-optimal — effective throughput collapses far below what the memory numbers would predict. |
+
+On top of that, agentic clients like **Roo Code** and **Cline**, which keep sending large contexts
+with tool-call schemas, triggered worker processes being killed with `terminated` messages and
+sporadic HIP-level failures that required restarting the container (sometimes the whole node).
+This is the well-known pattern of long-prompt prefill starving the engine loop on ROCm, also
+documented for the broader vLLM ecosystem on `gfx906` hardware — see e.g. the
+[nlzy/vllm-gfx906 issue tracker](https://github.com/nlzy/vllm-gfx906/issues?q=) (archived),
+[vLLM forum “vLLM stops due to prefill”](https://discuss.vllm.ai/t/it-seems-that-vllm-stops-due-to-prefill/1650),
+[vLLM forum “extremely slow / no response with multi-GPU TP”](https://discuss.vllm.ai/t/vllm-extremely-slow-no-response-with-max-model-len-8192-and-multi-gpu-tensor-parallel/1771),
+and [vllm-project/vllm#11286 — decoding speed on long context](https://github.com/vllm-project/vllm/issues/11286).
+
+The custom attention backend in this repo exists specifically to make long-context serving on
+MI50/MI60 practical, not just “benchmark-friendly”. The two tuning knobs that unlocked it:
+
+1. A **direct-paged FA kernel** (no intermediate `gather → forward` trip through HBM), tuned for
+   gfx906 launch bounds, which keeps prefill latency nearly flat from 1K up to 60K+.
+2. A **Profile B** serving mode with n-gram speculative decoding, which keeps decode throughput
+   flat at 100K+ instead of collapsing into single-digit tok/s.
 
 ---
 
