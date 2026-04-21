@@ -197,10 +197,17 @@ docker run -d --name vllm \
 
 ### Worked example — MiniMax-M2.7-AWQ-4bit on 8× MI50 32 GB (Profile A)
 
-Verified launch command (model loads in ~83 s; KV cache ≈ 130 k tokens at
-`max_model_len=32768`, giving ~4× headroom over the 16 concurrent slots).
-Tool-calling and reasoning are enabled, so the model is usable out of the box
-from Roo Code, Cline, OpenAI-compatible clients, etc.
+Verified launch command. Observed on this setup:
+
+- Model load: ~83 s (27 safetensors shards).
+- **Per-request ceiling** (`--max-model-len`): **32 768 tokens** — any single
+  prompt + completion must fit under this.
+- **Shared KV-cache pool across all 8 GPUs**: ~130 000 tokens. This pool is
+  split between concurrent requests, so at full 32 k context you get ~4
+  simultaneous long-running sessions; shorter sessions pack in many more.
+- Tool-calling (`minimax_m2`) and reasoning (`minimax_m2_append_think`) are
+  enabled, so the model is usable out of the box from Roo Code, Cline and
+  any OpenAI-compatible client.
 
 ```bash
 docker run -d --name vllm-minimax \
