@@ -195,6 +195,57 @@ docker run -d --name vllm \
 #   --speculative-config '{"method":"ngram","num_speculative_tokens":5,"prompt_lookup_max":4,"prompt_lookup_min":2}'
 ```
 
+### Worked example — MiniMax-M2.7-AWQ-4bit on 8× MI50 32 GB (Profile A)
+
+Verified launch command (model loads in ~83 s, KV cache ~395 k tokens at
+`max_model_len=10240`, or ~130 k tokens at `max_model_len=32768`). Tool-calling
+and reasoning are enabled, so the model is usable out of the box from Roo Code,
+Cline, OpenAI-compatible clients, etc.
+
+```bash
+docker run -d --name vllm-minimax \
+    --network host --ipc host --shm-size 16g \
+    --device /dev/kfd --device /dev/dri \
+    --group-add 44 --group-add 993 \
+    --cap-add CAP_SYS_PTRACE --security-opt seccomp=unconfined \
+    -v /path/to/models:/models \
+    -e NCCL_P2P_DISABLE=1 -e HIP_ENABLE_PEER_ACCESS=0 \
+    nickoptimal/gfx906-fa-vllm:mvp \
+    vllm serve /models/MiniMax-M2.7-AWQ-4bit \
+        --served-model-name minimax-m2.7-awq-4bit \
+        --trust-remote-code \
+        --dtype float16 \
+        --attention-backend CUSTOM \
+        --disable-custom-all-reduce \
+        --tensor-parallel-size 8 \
+        --gpu-memory-utilization 0.90 \
+        --max-model-len 32768 \
+        --max-num-seqs 16 \
+        --max-num-batched-tokens 8192 \
+        --enable-chunked-prefill \
+        --enable-auto-tool-choice \
+        --tool-call-parser minimax_m2 \
+        --reasoning-parser minimax_m2_append_think
+```
+
+Why these values (Profile A, max throughput on 8× MI50):
+
+| Flag | Value | Reason |
+| --- | --- | --- |
+| `--tensor-parallel-size` | `8` | One rank per MI50; MoE weights split evenly. |
+| `--gpu-memory-utilization` | `0.90` | Safe on Profile A (short ctx, no spec-decoding overhead). |
+| `--max-model-len` | `32768` | Good balance for agentic clients (Roo, Cline). Use `65536` if you need more; then drop `--max-num-seqs` to `8`. |
+| `--max-num-seqs` | `16` | 2 concurrent slots per GPU — healthy for MI50 decode throughput. |
+| `--max-num-batched-tokens` | `8192` | Fills MFU on prefill without stalling decode when chunked prefill is on. |
+| `--enable-chunked-prefill` | — | Large prompts are sliced and interleaved with ongoing decode → stable ITL. |
+| `--tool-call-parser` | `minimax_m2` | Required for OpenAI-style `"tool_choice": "auto"` requests. |
+| `--reasoning-parser` | `minimax_m2_append_think` | Strips / exposes `<think>…</think>` reasoning blocks correctly. |
+| `--attention-backend` | `CUSTOM` | Activates the gfx906 FA backend from this repo. |
+| `--disable-custom-all-reduce` | — | Must be set when P2P is disabled (default on most G292-Z20 / gfx906 nodes). |
+
+Do **not** add `--enforce-eager` or `--speculative-config` on Profile A — they
+hurt short-context throughput; those belong to Profile B only.
+
 ### Build from source
 
 ```bash
