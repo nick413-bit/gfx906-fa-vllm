@@ -1,11 +1,17 @@
-# gfx906-fa-vllm — кастомный FlashAttention-style attention backend
-# для AMD MI50/MI60 (gfx906), работает поверх vLLM.
+# gfx906-fa-vllm — custom FlashAttention-style attention backend
+# for AMD MI50 / MI60 / Radeon VII (gfx906), plugged into vLLM via
+# the `vllm.general_plugins` entry point.
 #
-# Базовый образ: mixa3607/vllm-gfx906:0.19.1-rocm-7.2.1-aiinfos
-# (vLLM 0.19.1-dev + ROCm 7.2.1 + PyTorch 2.9 для gfx906).
-# Спасибо @mixa3607 за maintained image.
+# This repository is a downstream fork of mixa3607/ML-gfx906
+# (https://github.com/mixa3607/ML-gfx906). The base image is the
+# upstream vLLM build for gfx906:
 #
-# Multi-stage build: (1) компиляция HIP extension, (2) рантайм-образ.
+#   docker.io/mixa3607/vllm-gfx906:0.19.1-rocm-7.2.1-aiinfos
+#   (vLLM 0.19.1 + ROCm 7.2.1 + PyTorch 2.9, patched for gfx906)
+#
+# Thanks to @mixa3607 for maintaining the upstream image.
+#
+# Multi-stage build: (1) compile HIP extension, (2) runtime image.
 #
 # Patches applied to base image:
 #   - fa_utils.py: except ImportError → except Exception
@@ -41,7 +47,7 @@ FROM ${BASE_IMAGE}
 
 LABEL org.opencontainers.image.title="gfx906-fa-vllm" \
       org.opencontainers.image.description="FlashAttention-style custom attention backend for vLLM on AMD MI50/MI60 (gfx906)" \
-      org.opencontainers.image.source="https://github.com/nick413/gfx906-fa-vllm" \
+      org.opencontainers.image.source="https://github.com/nick413-bit/gfx906-fa-vllm" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 COPY --from=builder /src/extension /opt/gfx906_fa

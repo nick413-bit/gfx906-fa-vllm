@@ -1,11 +1,29 @@
-gfx906-fa-vllm contributors:
+gfx906-fa-vllm contributors
+===========================
 
   Nick <nick413@gmail.com>
 
-Acknowledgements:
+Upstream project
+----------------
 
-  @nalanzeyu — base Docker image `vllm-gfx906:v0.12.0-rocm6.3-ct-upgraded-mi50p2p`
-               (используется как базовый слой сборки gfx906-fa-vllm)
-  @mixa3607  — alternative ROCm 7.2.1 vllm-gfx906 image (референс)
-  llama.cpp project — original FlashAttention Q8_0 kernel ideas
-  vLLM project — paged KV cache layout and AttentionImpl API
+This repository is a downstream fork of:
+
+  mixa3607/ML-gfx906  —  https://github.com/mixa3607/ML-gfx906
+                         (C) Mikhail Aksenov (@mixa3607)
+
+Specifically, we build on top of the upstream Docker image:
+
+  docker.io/mixa3607/vllm-gfx906:0.19.1-rocm-7.2.1-aiinfos
+
+which bundles ROCm 7.2.1, PyTorch 2.9 and vLLM 0.19.1 patched for gfx906
+(AMD MI50 / MI60 / Radeon VII). All of the underlying ROCm / PyTorch / vLLM
+work in that image is @mixa3607's, not ours — this fork only adds the
+custom attention backend, HIP kernels and the `vllm.general_plugins` entry
+point that wires them into vLLM.
+
+Acknowledgements
+----------------
+
+  @mixa3607              —  upstream ML-gfx906 stack (ROCm, PyTorch, vLLM images)
+  llama.cpp project      —  original FlashAttention Q8_0 kernel design (MIT)
+  vLLM project           —  paged KV cache layout, AttentionImpl API, plugin system
