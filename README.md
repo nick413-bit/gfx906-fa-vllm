@@ -195,14 +195,6 @@ docker run -d --name vllm \
 #   --speculative-config '{"method":"ngram","num_speculative_tokens":5,"prompt_lookup_max":4,"prompt_lookup_min":2}'
 ```
 
-### Deploy on GPUStack
-
-A ready-to-use GPUStack custom-backend manifest is provided in
-[`gpustack/gfx906-fa-vllm.yaml`](gpustack/gfx906-fa-vllm.yaml). It registers
-both profiles as separate versions (`profile-a-short-ctx` /
-`profile-b-long-ctx-ngram`) so you can pick them from the GPUStack UI at
-deploy time. See [`gpustack/README.md`](gpustack/README.md) for setup.
-
 ### Build from source
 
 ```bash
@@ -277,7 +269,7 @@ the exception to `except Exception:` is safe.
 
 1. **Q8_0 K quantization** — the side-buffer design (Level 0) is temporarily disabled because of
    synchronization issues with vLLM warm-up passes; the stable path is inline quantize inside
-   `forward`. See `BASELINE.md §14` in the internal development history.
+   `forward`.
 2. **Paged KV cache format** is bit-compatible with vLLM stock layout
    `(num_blocks, 2, block_size, num_kv_heads, head_dim)` — no allocator changes.
 3. **Launch bounds** are tuned for gfx906: `__launch_bounds__(128, 4)` — 2 wavefronts per block

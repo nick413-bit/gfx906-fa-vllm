@@ -38,7 +38,7 @@ set -euo pipefail
 
 SPEC_CONFIG="{\"method\":\"ngram\",\"num_speculative_tokens\":$NGRAM_K,\"prompt_lookup_min\":$NGRAM_MIN,\"prompt_lookup_max\":$NGRAM_MAX}"
 
-: "${MODEL_MOUNT:=/var/lib/gpustack/cache/huggingface}"
+: "${MODEL_MOUNT:=/var/lib/vllm/models}"
 : "${EXTRA_MOUNT:=}"
 
 docker rm -f "$CONTAINER_NAME" 2>/dev/null || true

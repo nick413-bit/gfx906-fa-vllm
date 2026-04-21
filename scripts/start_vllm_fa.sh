@@ -38,7 +38,7 @@ set -euo pipefail
 : "${DIRECT_PAGED:=auto}"  # adaptive path (direct-paged FA для long ctx)
 : "${GATHER_V:=2}"      # paged-block-coalesced gather
 
-: "${MODEL_MOUNT:=/var/lib/gpustack/cache/huggingface}"
+: "${MODEL_MOUNT:=/var/lib/vllm/models}"
 : "${EXTRA_MOUNT:=}"
 
 docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
