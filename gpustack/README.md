@@ -38,7 +38,11 @@ gpustack backend register -f gpustack/gfx906-fa-vllm.yaml
 4. Under **Version**: pick the profile.
    - Chat / ≤ 32K → `profile-a-short-ctx`
    - RAG / code / ≥ 32K → `profile-b-long-ctx-ngram`
-5. **Backend Parameters** — add the bits GPUStack does not know about:
+5. **Backend Parameters** — **REQUIRED**, add the bits GPUStack does not
+   know about. Without these the deployment will either OOM (TP defaults to
+   1, so the full 21 GiB of MiniMax-M2.7 weights try to fit on a single
+   32 GiB MI50) or use the model's native `max_model_len` (196 608 tokens)
+   which is almost always too big for the available KV-cache budget:
 
    ```text
    --tensor-parallel-size 8
@@ -47,6 +51,11 @@ gpustack backend register -f gpustack/gfx906-fa-vllm.yaml
    --max-num-seqs 4
    --max-num-batched-tokens 4096
    ```
+
+   Scale `--tensor-parallel-size` to however many MI50s the worker has.
+   `--gpu-memory-utilization 0.78` leaves a safety margin for the HIP
+   allocator; push it up (0.85+) only if you need more KV cache and are
+   sure nothing else shares the GPU.
 
 6. **Environment variables** (optional — defaults from the YAML are usually
    fine; override only if you know what you are doing):

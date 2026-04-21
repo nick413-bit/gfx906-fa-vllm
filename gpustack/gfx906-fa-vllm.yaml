@@ -47,7 +47,8 @@ default_env:
   GFX906_FA_DIRECT_PAGED: "auto"
   GFX906_FA_GATHER_V: "2"
   # vLLM runtime
-  VLLM_USE_V1: "1"
+  # (VLLM_USE_V1 is the default since vLLM 0.19 — do not set it explicitly,
+  # it now prints a deprecation warning.)
   VLLM_USE_TRITON_AWQ: "1"
   TORCH_BLAS_PREFER_HIPBLASLT: "0"
   # Multi-GPU: P2P off by default on typical MI50 topologies (PCIe switches)
