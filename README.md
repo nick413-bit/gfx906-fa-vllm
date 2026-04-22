@@ -404,11 +404,25 @@ adaptation for other architectures.
 
 ## Limitations and roadmap
 
-- [ ] **Q8 V quantization** — currently V stays fp16 in KV cache. Biggest remaining headroom for
-      decode at 100K+ (+20…30 % expected).
-- [ ] **EAGLE draft model** — +2…3× on generic prompts, requires training a drafter.
-- [ ] **Persistent kernel** — remove per-layer launch overhead over 62 layers. High risk.
-- [ ] **Q8 K side-buffer** — fix synchronization with vLLM warm-up passes (re-enable Level 0).
+See [**ROADMAP.md**](./ROADMAP.md) for the full list of planned optimizations with links
+to the underlying research papers (FlashDecoding++, PARD, BitDecoding, LiquidGEMM,
+tinygemm / any4, noflash-attention) and concrete scope / expected-gain estimates per item.
+
+**We are actively looking for contributors.** If you have access to any gfx906 GPU
+(MI50 / MI60 / Radeon VII) — even a single card — and want to pick up one of the
+items from the roadmap, please open an issue titled `[ROADMAP] <item>` and we will
+help scope it. The cheapest items (softmax FTZ, double buffering) are a few days
+of work; the biggest wins (PARD, Q8-V, tuned `fused_moe`) are 1–2 weeks each and
+are expected to roughly double decode throughput at 32K+ context when combined.
+
+Short summary of what is open right now:
+
+- [ ] **Async softmax + flat-GEMM double buffering** (FlashDecoding++) — +15…25 % TG.
+- [ ] **PARD draft model** — replaces n-gram profile, +40…70 % on free-form generation.
+- [ ] **Q8 V quantization** in KV cache (BitDecoding-inspired) — +15…20 % TG at long ctx.
+- [ ] **Tuned `fused_moe` config** for `E=256,N=192` — +10…15 % MoE throughput.
+- [ ] **In-register INT4 dequant + `v_dot2_f32_f16`** for MoE GEMV (LiquidGEMM / tinygemm).
+- [ ] **Softmax FTZ threshold** (from `noflash-attention`) — stability fix, 1 day.
 
 ---
 
